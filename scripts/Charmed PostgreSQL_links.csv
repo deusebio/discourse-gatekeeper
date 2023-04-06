@@ -1,0 +1,15 @@
+h-configure-s3;https://discourse.charmhub.io/t/charmed-postgresql-how-to-configure-s3/9681
+h-create-and-list-backups;https://discourse.charmhub.io/t/charmed-postgresql-how-to-create-and-list-backups/9683
+h-enable-encryption;https://discourse.charmhub.io/t/charmed-postgresql-how-to-enable-encryption/9685
+h-manage-app;https://discourse.charmhub.io/t/charmed-postgresql-how-to-manage-app/9687
+h-manage-units;https://discourse.charmhub.io/t/charmed-postgresql-how-to-manage-units/9689
+h-migrate-cluster-via-restore;https://discourse.charmhub.io/t/charmed-postgresql-how-to-migrate-cluster-via-restore/9691
+h-restore-backup;https://discourse.charmhub.io/t/charmed-postgresql-how-to-restore-backup/9693
+t-cleanup-environment;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-cleanup-environment/9695
+t-deploy-postgresql;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-deploy-postgresql/9697
+t-enable-security;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-enable-security/9699
+t-integrations;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-integrations/9701
+t-manage-passwords;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-manage-passwords/9703
+t-managing-units;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-managing-units/9705
+t-overview;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-overview/9707
+t-setup-environment;https://discourse.charmhub.io/t/charmed-postgresql-tutorial-setup-environment/9709

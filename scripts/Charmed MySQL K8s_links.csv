@@ -1,0 +1,15 @@
+h-configure-s3;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-configure-s3/9651
+h-create-and-list-backups;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-create-and-list-backups/9653
+h-enable-encryption;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-enable-encryption/9655
+h-manage-app;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-manage-app/9657
+h-manage-units;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-manage-units/9659
+h-migrate-cluster-via-restore;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-migrate-cluster-via-restore/9661
+h-restore-backup;https://discourse.charmhub.io/t/charmed-mysql-k8s-how-to-restore-backup/9663
+t-cleanup-environment;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-cleanup-environment/9665
+t-deploy-mysql;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-deploy-mysql/9667
+t-enable-security;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-enable-security/9669
+t-integrations;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-integrations/9671
+t-manage-passwords;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-manage-passwords/9673
+t-managing-units;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-managing-units/9675
+t-overview;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-overview/9677
+t-setup-environment;https://discourse.charmhub.io/t/charmed-mysql-k8s-tutorial-setup-environment/9679
