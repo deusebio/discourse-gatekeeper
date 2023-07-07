@@ -20,8 +20,8 @@ from .repository import DEFAULT_BRANCH_NAME
 from .types_ import ActionResult, UserInputs
 
 GETTING_STARTED = (
-    "To get started with upload-charm-docs, "
-    "please refer to https://github.com/canonical/upload-charm-docs#getting-started"
+    "To get started with discourse-gatekeeper, "
+    "please refer to https://github.com/canonical/discourse-gatekeeper#getting-started"
 )
 
 
@@ -30,7 +30,7 @@ def run_reconcile(clients: Clients, user_inputs: UserInputs) -> dict[str, str]:
 
     Args:
         clients: The clients to interact with things like discourse and the repository.
-        user_inputs: Configurable inputs for running upload-charm-docs.
+        user_inputs: Configurable inputs for running discourse-gatekeeper.
 
     Returns:
         All the URLs that had an action with the result of that action.
@@ -111,7 +111,7 @@ def run_migrate(clients: Clients, user_inputs: UserInputs) -> dict[str, str]:
 
     Args:
         clients: The clients to interact with things like discourse and the repository.
-        user_inputs: Configurable inputs for running upload-charm-docs.
+        user_inputs: Configurable inputs for running discourse-gatekeeper.
 
     Returns:
         A single key-value pair dictionary containing a link to the Pull Request containing

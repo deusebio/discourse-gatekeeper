@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 
 class UserInputsDiscourse(typing.NamedTuple):
-    """Configurable user input values used to run upload-charm-docs.
+    """Configurable user input values used to run discourse-gatekeeper.
 
     Attrs:
         hostname: The base path to the discourse server.
@@ -27,7 +27,7 @@ class UserInputsDiscourse(typing.NamedTuple):
 
 
 class UserInputs(typing.NamedTuple):
-    """Configurable user input values used to run upload-charm-docs.
+    """Configurable user input values used to run discourse-gatekeeper.
 
     Attrs:
         discourse: The configuration for interacting with discourse.
