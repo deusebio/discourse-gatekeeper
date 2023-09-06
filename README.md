@@ -1,6 +1,7 @@
 # Discourse Gatekeeper Documentation
 
-*This action is still in alpha, breaking changes could occur.*
+*This action is still in alpha, breaking changes could occur. For now, it should
+only be used on Canonical repositories after approval.*
 
 This action automates uploading documentation from the `docs` folder in a
 repository to discourse which is how the charm documentation is published to
@@ -49,7 +50,7 @@ charmhub.
         steps:
           - uses: actions/checkout@v3
           - name: Publish documentation
-            uses: canonical/discourse-gatekeeper@main
+            uses: deusebio/discourse-gatekeeper@main
             id: publishDocumentation
             with:
               discourse_host: discourse.charmhub.io
@@ -93,7 +94,7 @@ charmhub.
         steps:
           - uses: actions/checkout@v3
           - name: Publish documentation
-            uses: canonical/discourse-gatekeeper@main
+            uses: deusebio/discourse-gatekeeper@main
             id: publishDocumentation
             with:
               discourse_host: discourse.charmhub.io
@@ -150,3 +151,119 @@ If, after checking the community contributions on discourse, you determine that
 there are no logical conflicts, the `discourse-gatekeeper/discourse-ahead-ok` tag
 can be applied to the latest commit in the PR which will allow the action to
 proceed assuming there are no page-by-page conflicts.
+
+## Contents Index
+
+The `docs/index.md` file may contain a `# contents` section which is used to
+customize the generation of the navigation table on discourse. Everything from
+this section up to the next header (identified by a line starting with `#`) or
+the end of the file will be removed from the index page and be replaced with the
+navigation table on discourse. For example the following section in
+`docs/index.md`:
+
+```markdown
+# Contents
+
+1. [Reference](reference)
+  1. [Integrations](reference/integrations.md)
+```
+
+Would result in the following navigation table on discourse:
+
+```markdown
+# Navigation
+
+| level | path | navlink |
+| --- | --- | --- |
+| 1 | reference | [Reference]() |
+| 2 | reference-integrations | [Integrations](/t/nginx-ingress-integrator-docs-reference-integrations/7756) |
+```
+
+The following are example valid permutations of the contents section in
+`index.md`:
+
+```markdown
+# Contents
+
+1. [Reference](reference)
+  a. [Integrations](reference/integrations.md)
+
+# Contents
+
+* [Reference](reference)
+  * [Integrations](reference/integrations.md)
+
+# Contents
+
+- [Reference](reference)
+  - [Integrations](reference/integrations.md)
+
+# Contents
+
+- [Reference](reference)
+  1. [Integrations](reference/integrations.md)
+```
+
+The links can be one of the following:
+
+* A local link to a directory (e.g., [Tutorials](tutorials) which links to the
+  `tutorials` directory)
+* A local link to a file (e.g., [Getting Started](tutorials/getting-started.md)
+  which links to the `tutorials/getting-started.md` file)
+
+`*.md` files and directories in `docs` not listed in the contents index will be
+added in alphabetical order after any items that are listed. This is to ensure
+backwards compatibility. References are checked for validity. A link to a file
+or directory that does not exist will result in an error.
+
+### Hidden Items
+
+Items on the contents index can be commented out which will mean the item on the
+navigation table won't have a level. This will mean that the item is not shown
+on the navigation but can still be used in links.
+
+### Discourse Translation
+
+* The list hierarchy indicates the level on the navigation table, this is
+  checked against the file structure and results in an error/ warning to the
+  user if it is not a match
+* Files and directories don’t have to be listed, if they are not listed they are
+  injected in the appropriate location after any listed items (for backwards
+  compatibility and ease of use) in alphabetical order
+
+## Developers
+
+### Risk-based branching
+
+This action uses the notion of risks, similarly to what used in SNAP (see 
+[here](https://snapcraft.io/docs/channels) for a description and explanation of these concepts). 
+We currently only provide support on one single track (say latest), with the following 
+branching naming convention:
+
+* [main](https://github.com/canonical/upload-charm-docs/tree/main) corresponds to the edge risk
+* [stable](https://github.com/canonical/upload-charm-docs/tree/stable) corresponds to the stable version of the action
+
+We therefore generally advise you to pick the risk channel that best fits to your need. 
+
+### End-to-End Integration Tests
+
+When merging a PR, we make sure the code follows all code conventions (linting), unit-tests and 
+integration tests. **Edge version are however NOT checked against full end-to-end integration tests**. 
+
+<!-- LINK BELOW TO BE CHANGED -->
+End-to-End tests are implemented in a separated [test repository](https://github.com/deusebio/repo-test), 
+and run as scheduled workflows against the edge branch. When working on large and impactful feature, 
+we generally suggest to test your branch PR against End-to-End tests even before merging. To do so, 
+follow these steps:
+
+1. Fork the [test repository](https://github.com/deusebio/repo-test)
+2. Amend the E2E workflows to point to your PR branch, i.e. 
+```yaml
+      name: Publish documentation
+      uses: canonical/upload-charm-docs@your-pr-branch # CHANGE HERE
+```
+3. Raise a PR against the test-repository. This PR will not be merged but it will allow you to tests
+    your changes
+
+Periodically, we review the latest changes on edge branches and we rebase lower risks branches (
+e.g. stable) onto higher risk branches (e.g. edge). 

@@ -1,6 +1,6 @@
 # Copyright 2023 Canonical Ltd.
 # See LICENSE file for licensing details.
-
+# pylint: disable=too-many-lines
 """Unit tests for execution."""
 import logging
 from pathlib import Path
@@ -11,18 +11,19 @@ from git.repo import Repo
 from github.PullRequest import PullRequest
 
 from src import (  # GETTING_STARTED,
-    DEFAULT_BRANCH,
     DOCUMENTATION_FOLDER_NAME,
     DOCUMENTATION_TAG,
     Clients,
     constants,
     discourse,
     exceptions,
+    pre_flight_checks,
     run_migrate,
     run_reconcile,
     types_,
 )
 from src.clients import get_clients
+from src.constants import DEFAULT_BRANCH
 from src.metadata import METADATA_DOCS_KEY, METADATA_NAME_KEY
 from src.repository import DEFAULT_BRANCH_NAME
 from src.repository import Client as RepositoryClient
@@ -83,7 +84,41 @@ def test__run_reconcile_empty_local_server(mocked_clients):
         title="Name 1 Documentation Overview",
         content=f"{constants.NAVIGATION_TABLE_START.strip()}",
     )
-    assert returned_page_interactions == {url: types_.ActionResult.SUCCESS}
+    assert returned_page_interactions is not None
+    assert returned_page_interactions.topics == {url: types_.ActionResult.SUCCESS}
+
+
+@mock.patch(
+    "src.repository.Client.metadata",
+    types_.Metadata(name="name 1", docs=None),
+)
+def test__run_reconcile_empty_local_server_from_non_base_branch(mocked_clients):
+    """
+    arrange: given metadata with name but not docs and empty docs folder and mocked discourse
+    act: when _run_reconcile is called in non dry-run mode and from a branch other than the
+            base branch
+    assert: then an error is thrown when tagging the branch
+    """
+    mocked_clients.discourse.create_topic.return_value = "url 1"
+
+    branch = "fake-branch"
+
+    with mocked_clients.repository.create_branch(branch, DEFAULT_BRANCH).with_branch(
+        branch
+    ) as repo:
+        (repo.base_path / DOCUMENTATION_FOLDER_NAME).mkdir()
+        (repo.base_path / "placeholder-file.md").touch()
+        repo.update_branch("new commit", directory=None)
+        user_inputs = factories.UserInputsFactory(
+            dry_run=False, delete_pages=True, commit_sha=repo.current_commit
+        )
+
+        with pytest.raises(exceptions.TaggingNotAllowedError) as exc_info:
+            run_reconcile(clients=mocked_clients, user_inputs=user_inputs)
+
+        assert_substrings_in_string(
+            (repo.current_commit, f"outside of {DEFAULT_BRANCH}"), str(exc_info.value)
+        )
 
 
 @mock.patch(
@@ -127,8 +162,230 @@ def test__run_reconcile_local_empty_server(mocked_clients):
             f"| 1 | page | [{page_content}]({page_url}) |"
         ),
     )
-    assert returned_page_interactions == {
+    assert returned_page_interactions is not None
+    assert returned_page_interactions.topics == {
         page_url: types_.ActionResult.SUCCESS,
+        index_url: types_.ActionResult.SUCCESS,
+    }
+
+
+@mock.patch("src.repository.Client.get_file_content_from_tag")
+@pytest.mark.parametrize(
+    "branch_name",
+    [pytest.param(DEFAULT_BRANCH), pytest.param("other-main")],
+)
+def test_run_reconcile_same_content_local_and_server(
+    get_file_content_from_tag,
+    caplog,
+    mocked_clients,
+    branch_name,
+):
+    """
+    arrange: given a path with a metadata.yaml that has docs key and docs directory aligned
+        and mocked discourse (with tag and branch aligned)
+    act: when run_reconcile is called
+    assert: that nothing is done, and, depending on the branch we are at, the DOCUMENTATION_TAG
+        is updated with the current commit if we are in the base branch
+    """
+    repository_path = mocked_clients.repository.base_path
+
+    if branch_name != DEFAULT_BRANCH:
+        mocked_clients.repository.create_branch(branch_name, DEFAULT_BRANCH)
+
+    create_metadata_yaml(
+        content=f"{METADATA_NAME_KEY}: name 1\n" f"{METADATA_DOCS_KEY}: https://discourse/t/docs",
+        path=repository_path,
+    )
+    index_content = """Content header lorem.
+
+    Content body."""
+    index_table = f"""{constants.NAVIGATION_TABLE_START}
+    | 1 | folder | [Folder]() |
+    | 2 | their-file-1 | [file-navlink-title](/file-navlink) |"""
+    index_page = f"{index_content}{index_table}"
+    navlink_page = "# file-navlink-title\nfile-navlink-content"
+    mocked_clients.discourse.retrieve_topic.side_effect = [index_page, navlink_page]
+
+    (docs_folder := mocked_clients.repository.base_path / "docs").mkdir()
+    (index_file := docs_folder / "index.md").write_text(index_content)
+    (docs_folder / "folder").mkdir()
+    (their_file := docs_folder / "folder" / "their-file-1.md").write_text(navlink_page)
+
+    mocked_clients.repository.switch(DEFAULT_BRANCH).update_branch(
+        "First document version", directory=None
+    )
+
+    def patch(path, tag_name) -> str:
+        """Return the patches content of a given tag.
+
+        Args:
+            path: path of the file
+            tag_name: name of the tag
+
+        Returns:
+            Content of the given tag
+        """
+        assert tag_name
+
+        if path == str(index_file.relative_to(repository_path)):
+            return index_content
+        if path == str(their_file.relative_to(repository_path)):
+            return navlink_page
+        return ""
+
+    get_file_content_from_tag.side_effect = patch
+
+    mocked_clients.repository.tag_commit(
+        DOCUMENTATION_TAG, mocked_clients.repository.current_commit
+    )
+
+    (mocked_clients.repository.base_path / "placeholder.md").touch()
+
+    mocked_clients.repository.switch(DEFAULT_BRANCH).update_branch(
+        "Placeholder modification outside of docs", directory=None
+    )
+
+    user_inputs = factories.UserInputsFactory(
+        commit_sha=mocked_clients.repository.current_commit, base_branch=branch_name
+    )
+
+    assert (
+        mocked_clients.repository.tag_exists(DOCUMENTATION_TAG)
+        != mocked_clients.repository.current_commit
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        # run is repeated in unit tests / integration tests
+        returned_reconcile_reports = run_reconcile(
+            clients=mocked_clients, user_inputs=user_inputs
+        )  # pylint: disable=duplicate-code
+
+    assert returned_reconcile_reports
+
+    assert "Reconcile not required to run" in caplog.text
+
+    if branch_name == DEFAULT_BRANCH:
+        assert "Updating the tag" in caplog.text
+        assert (
+            mocked_clients.repository.tag_exists(DOCUMENTATION_TAG)
+            == mocked_clients.repository.current_commit
+        )
+    else:
+        # Running outside of base branch
+        assert (
+            mocked_clients.repository.tag_exists(DOCUMENTATION_TAG)
+            != mocked_clients.repository.current_commit
+        )
+
+
+@mock.patch(
+    "src.repository.Client.metadata",
+    types_.Metadata(name="name 1", docs=None),
+)
+def test__run_reconcile_local_contents_index(mocked_clients):
+    """
+    arrange: given metadata with name but not docs and docs folder with multiple files, contents
+        index with the files and mocked discourse
+    act: when _run_reconcile is called
+    assert: then a documentation page is created and an index page is created with a navigation
+        page with a reference to the documentation pages based on the order in the contents index.
+    """
+    mocked_clients.discourse.create_topic.side_effect = [
+        (page_2_url := "url 2"),
+        (page_1_url := "url 1"),
+        (index_url := "url 3"),
+    ]
+
+    with mocked_clients.repository.with_branch(DEFAULT_BRANCH) as repo:
+        (docs_dir := repo.base_path / "docs").mkdir()
+        (docs_dir / (page_1 := Path("page_1.md"))).write_text("page 1 content", encoding="utf-8")
+        (docs_dir / (page_2 := Path("page_2.md"))).write_text("page 2 content", encoding="utf-8")
+        (docs_dir / "index.md").write_text(
+            f"""{(index_content := 'index content')}
+# contents
+- [{(page_2_title := "Page 2")}]({page_2})
+- [{(page_1_title := "Page 1")}]({page_1})
+""",
+            encoding="utf-8",
+        )
+        repo.update_branch("new commit")
+
+        user_inputs = factories.UserInputsFactory(
+            dry_run=False, delete_pages=True, commit_sha=repo.current_commit
+        )
+
+        returned_page_interactions = run_reconcile(
+            clients=mocked_clients,
+            user_inputs=user_inputs,
+        )
+
+    assert mocked_clients.discourse.create_topic.call_count == 3
+    mocked_clients.discourse.create_topic.assert_any_call(
+        title="Name 1 Documentation Overview",
+        content=(
+            f"{index_content}{constants.NAVIGATION_TABLE_START}\n"
+            f"| 1 | page-2 | [{page_2_title}]({page_2_url}) |\n"
+            f"| 1 | page-1 | [{page_1_title}]({page_1_url}) |"
+        ),
+    )
+    assert returned_page_interactions is not None
+    assert returned_page_interactions.topics == {
+        page_2_url: types_.ActionResult.SUCCESS,
+        page_1_url: types_.ActionResult.SUCCESS,
+        index_url: types_.ActionResult.SUCCESS,
+    }
+
+
+@mock.patch(
+    "src.repository.Client.metadata",
+    types_.Metadata(name="name 1", docs=None),
+)
+def test__run_reconcile_hidden_item(mocked_clients):
+    """
+    arrange: given metadata with name but not docs and docs folder with single commented out file
+        and mocked discourse
+    act: when _run_reconcile is called
+    assert: then a documentation page is created and an index page is created with a navigation
+        page without a level for the commented out item.
+    """
+    mocked_clients.discourse.create_topic.side_effect = [
+        (page_1_url := "url 1"),
+        (index_url := "url 3"),
+    ]
+
+    with mocked_clients.repository.with_branch(DEFAULT_BRANCH) as repo:
+        (docs_dir := repo.base_path / "docs").mkdir()
+        (docs_dir / (page_1 := Path("page_1.md"))).write_text("page 1 content", encoding="utf-8")
+        (docs_dir / "index.md").write_text(
+            f"""{(index_content := 'index content')}
+# contents
+<!-- - [{(page_1_title := "Page 1")}]({page_1}) -->
+""",
+            encoding="utf-8",
+        )
+        repo.update_branch("new commit")
+
+        user_inputs = factories.UserInputsFactory(
+            dry_run=False, delete_pages=True, commit_sha=repo.current_commit
+        )
+
+        returned_page_interactions = run_reconcile(
+            clients=mocked_clients,
+            user_inputs=user_inputs,
+        )
+
+    assert mocked_clients.discourse.create_topic.call_count == 2
+    mocked_clients.discourse.create_topic.assert_any_call(
+        title="Name 1 Documentation Overview",
+        content=(
+            f"{index_content}{constants.NAVIGATION_TABLE_START}\n"
+            f"| | page-1 | [{page_1_title}]({page_1_url}) |"
+        ),
+    )
+    assert returned_page_interactions is not None
+    assert returned_page_interactions.topics == {
+        page_1_url: types_.ActionResult.SUCCESS,
         index_url: types_.ActionResult.SUCCESS,
     }
 
@@ -151,7 +408,8 @@ def test__run_reconcile_local_empty_server_dry_run(mocked_clients):
     returned_page_interactions = run_reconcile(clients=mocked_clients, user_inputs=user_inputs)
 
     mocked_clients.discourse.create_topic.assert_not_called()
-    assert not returned_page_interactions
+    assert returned_page_interactions is not None
+    assert not returned_page_interactions.topics
 
 
 @mock.patch(
@@ -176,7 +434,8 @@ def test__run_reconcile_local_empty_server_dry_run_no_tag(mocked_clients, upstre
     returned_page_interactions = run_reconcile(clients=mocked_clients, user_inputs=user_inputs)
 
     mocked_clients.discourse.create_topic.assert_not_called()
-    assert not returned_page_interactions
+    assert returned_page_interactions is not None
+    assert not returned_page_interactions.topics
 
 
 @mock.patch(
@@ -207,7 +466,8 @@ def test__run_reconcile_local_empty_server_error(mocked_clients):
         title="Name 1 Documentation Overview",
         content=f"{constants.NAVIGATION_TABLE_START.strip()}",
     )
-    assert not returned_page_interactions
+    assert returned_page_interactions is not None
+    assert not returned_page_interactions.topics
 
 
 @mock.patch(
@@ -420,7 +680,9 @@ def test__run_migrate(
     )
 
     upstream_git_repo.git.checkout(DEFAULT_BRANCH_NAME)
-    assert returned_migration_reports == {mock_pull_request.html_url: types_.ActionResult.SUCCESS}
+    assert returned_migration_reports is not None
+    assert returned_migration_reports.pull_request_url == mock_pull_request.html_url
+    assert returned_migration_reports.action == types_.PullRequestAction.OPENED
     assert (
         index_file := upstream_repository_path / DOCUMENTATION_FOLDER_NAME / "index.md"
     ).is_file()
@@ -482,7 +744,9 @@ def test__run_migrate_with_pull_request(
         user_inputs=user_inputs,
     )
 
-    assert returned_migration_reports == {mock_pull_request.html_url: types_.ActionResult.SUCCESS}
+    assert returned_migration_reports is not None
+    assert returned_migration_reports.pull_request_url == mock_pull_request.html_url
+    assert returned_migration_reports.action == types_.PullRequestAction.UPDATED
 
     upstream_git_repo.git.checkout(DEFAULT_BRANCH_NAME)
 
@@ -544,7 +808,9 @@ def test__run_migrate_with_pull_request_no_modification(
         user_inputs=user_inputs,
     )
 
-    assert returned_migration_reports == {mock_pull_request.html_url: types_.ActionResult.SUCCESS}
+    assert returned_migration_reports is not None
+    assert returned_migration_reports.pull_request_url == mock_pull_request.html_url
+    assert returned_migration_reports.action == types_.PullRequestAction.UPDATED
 
     upstream_git_repo.git.checkout(DEFAULT_BRANCH_NAME)
 
@@ -579,7 +845,8 @@ def test_run_no_docs_empty_dir(mocked_clients):
         title="Name 1 Documentation Overview",
         content=f"{constants.NAVIGATION_TABLE_START.strip()}",
     )
-    assert returned_page_interactions == {url: types_.ActionResult.SUCCESS}
+    assert returned_page_interactions is not None
+    assert returned_page_interactions.topics == {url: types_.ActionResult.SUCCESS}
 
 
 @pytest.mark.usefixtures("patch_create_repository_client")
@@ -619,7 +886,9 @@ def test_run_no_docs_dir(
     )  # pylint: disable=duplicate-code
 
     upstream_git_repo.git.checkout(DEFAULT_BRANCH_NAME)
-    assert returned_migration_reports == {mock_pull_request.html_url: types_.ActionResult.SUCCESS}
+    assert returned_migration_reports is not None
+    assert returned_migration_reports.pull_request_url == mock_pull_request.html_url
+    assert returned_migration_reports.action == types_.PullRequestAction.OPENED
     assert (
         index_file := upstream_repository_path / DOCUMENTATION_FOLDER_NAME / "index.md"
     ).is_file()
@@ -673,7 +942,9 @@ def test_run_no_docs_dir_no_tag(
     )  # pylint: disable=duplicate-code
 
     upstream_git_repo.git.checkout(DEFAULT_BRANCH_NAME)
-    assert returned_migration_reports == {mock_pull_request.html_url: types_.ActionResult.SUCCESS}
+    assert returned_migration_reports is not None
+    assert returned_migration_reports.pull_request_url == mock_pull_request.html_url
+    assert returned_migration_reports.action == types_.PullRequestAction.OPENED
     assert (
         index_file := upstream_repository_path / DOCUMENTATION_FOLDER_NAME / "index.md"
     ).is_file()
@@ -703,7 +974,7 @@ def test_run_migrate_same_content_local_and_server(mock_edit_pull_request, caplo
     )
     index_content = """Content header lorem.
 
-    Content body.\n"""
+    Content body."""
     index_table = f"""{constants.NAVIGATION_TABLE_START}
     | 1 | their-path-1 | [empty-navlink]() |
     | 2 | their-file-1 | [file-navlink](/file-navlink) |"""
@@ -790,10 +1061,60 @@ def test_run_migrate_same_content_local_and_server_open_pr(
             clients=mocked_clients, user_inputs=user_inputs
         )  # pylint: disable=duplicate-code
 
-    assert not returned_migration_reports
+    assert returned_migration_reports
+    assert returned_migration_reports.action == types_.PullRequestAction.CLOSED
     assert any("No community contribution found" in record.message for record in caplog.records)
     edit_call_args = [
         kwargs for name, args, kwargs in mock_edit_pull_request.mock_calls if name.endswith("edit")
     ]
     assert len(edit_call_args) == 1
     assert edit_call_args[0] == {"state": "closed"}
+
+
+def test_pre_flight_checks_ok(mocked_clients):
+    """
+    arrange: given a repository in a consistent state, meaning that the documentation tag is
+        part of the base_branch
+    act: when pre_flight_checks is called
+    assert: then the function returns True.
+    """
+    user_inputs = factories.UserInputsFactory()
+
+    assert pre_flight_checks(mocked_clients, user_inputs)
+
+
+def test_pre_flight_checks_ok_tag_not_exists(mocked_clients, upstream_git_repo):
+    """
+    arrange: given a repository in a consistent state with no documentation tag
+    act: when pre_flight_checks is called
+    assert: then the function returns True and a documentation tag is created.
+    """
+    mocked_clients.repository._git_repo.git.tag("-d", DOCUMENTATION_TAG)
+    upstream_git_repo.git.tag("-d", DOCUMENTATION_TAG)
+
+    user_inputs = factories.UserInputsFactory()
+
+    assert pre_flight_checks(mocked_clients, user_inputs)
+    assert mocked_clients.repository.tag_exists(DOCUMENTATION_TAG)
+
+
+def test_pre_flight_checks_fail(mocked_clients):
+    """
+    arrange: given a repository in an inconsistent state, meaning that the documentation tag is
+        not part of the base_branch
+    act: when pre_flight_checks is called
+    assert: then the function returns False.
+    """
+    user_inputs = factories.UserInputsFactory()
+
+    repository_path = mocked_clients.repository.base_path
+
+    with mocked_clients.repository.create_branch("fake-branch").with_branch("fake-branch") as repo:
+        (repository_path / "placeholder.md").touch()
+        repo.update_branch("New commit in fake-branch", directory=None)
+        repo.tag_commit(DOCUMENTATION_TAG, repo.current_commit)
+
+    (repository_path / "placeholder-2.md").touch()
+    mocked_clients.repository.update_branch("New commit in main", directory=None)
+
+    assert not pre_flight_checks(mocked_clients, user_inputs)

@@ -3,9 +3,11 @@
 
 """Unit tests for reconcile module."""
 
-# Need access to protected functions for testing, using walrus operator causes too-many-locals
-# pylint: disable=protected-access,too-many-locals
+# Need access to protected functions for testing, using walrus operator causes too-many-locals,
+# module has too many lines and might need refactoring.
+# pylint: disable=protected-access,too-many-locals,too-many-lines
 
+import typing
 from pathlib import Path
 from unittest import mock
 
@@ -17,7 +19,10 @@ from .. import factories
 from .helpers import assert_substrings_in_string
 
 
-def test__local_only_file(tmp_path: Path):
+@pytest.mark.parametrize(
+    "hidden", [pytest.param(False, id="not hidden"), pytest.param(True, id="hidden")]
+)
+def test__local_only_file(tmp_path: Path, hidden: bool):
     """
     arrange: given path info with a file
     act: when _local_only is called with the path info
@@ -25,7 +30,7 @@ def test__local_only_file(tmp_path: Path):
     """
     (path := tmp_path / "file1.md").touch()
     path.write_text(content := "content 1", encoding="utf-8")
-    path_info = factories.PathInfoFactory(local_path=path)
+    path_info = factories.PathInfoFactory(local_path=path, navlink_hidden=hidden)
 
     returned_action = reconcile._local_only(path_info=path_info)
 
@@ -34,6 +39,7 @@ def test__local_only_file(tmp_path: Path):
     assert returned_action.path == path_info.table_path
     assert returned_action.navlink_title == path_info.navlink_title
     assert returned_action.content == content
+    assert returned_action.navlink_hidden == hidden
 
 
 def test__local_only_directory(tmp_path: Path):
@@ -52,6 +58,7 @@ def test__local_only_directory(tmp_path: Path):
     assert returned_action.path == path_info.table_path
     assert returned_action.navlink_title == path_info.navlink_title
     assert returned_action.content is None
+    assert returned_action.navlink_hidden is False
 
 
 @pytest.mark.parametrize(
@@ -80,7 +87,7 @@ def test__local_and_server_error(  # pylint: disable=too-many-arguments
     path_info = factories.PathInfoFactory(
         local_path=path, level=path_info_level, table_path=path_info_table_path
     )
-    navlink = types_.Navlink(title=path_info.navlink_title, link="link 1")
+    navlink = factories.NavlinkFactory(title=path_info.navlink_title, link="link 1")
     table_row = types_.TableRow(level=table_row_level, path=(table_row_path,), navlink=navlink)
 
     with pytest.raises(exceptions.ReconcilliationError):
@@ -100,7 +107,7 @@ def test__get_server_content_missing_link():
     """
     mock_discourse = mock.MagicMock(spec=discourse.Discourse)
     mock_discourse.retrieve_topic.return_value = "content 1"
-    navlink = types_.Navlink(title="title 1", link=None)
+    navlink = factories.NavlinkFactory(title="title 1", link=None)
     table_row = types_.TableRow(level=1, path=("table path 1",), navlink=navlink)
 
     with pytest.raises(exceptions.ReconcilliationError):
@@ -115,7 +122,7 @@ def test__get_server_content_server_error():
     """
     mock_discourse = mock.MagicMock(spec=discourse.Discourse)
     mock_discourse.retrieve_topic.side_effect = exceptions.DiscourseError
-    navlink = types_.Navlink(title="title 1", link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(title="title 1", link=(navlink_link := "link 1"))
     table_row = types_.TableRow(level=1, path=("table path 1",), navlink=navlink)
 
     with pytest.raises(exceptions.ServerError) as exc_info:
@@ -128,12 +135,12 @@ def test__get_server_content_server_error():
     "local_content, server_content",
     [
         pytest.param("content 1", "content 1", id="same"),
-        pytest.param(" content 1", "content 1", id="server leading whitespace"),
-        pytest.param("\ncontent 1", "content 1", id="server leading whitespace new line"),
-        pytest.param("content 1 ", "content 1", id="server trailing whitespace"),
-        pytest.param("content 1", " content 1", id="local leading whitespace"),
-        pytest.param("content 1", "\ncontent 1", id="local leading whitespace new line"),
-        pytest.param("content 1", "content 1 ", id="local trailing whitespace"),
+        pytest.param(" content 1", "content 1", id="local leading whitespace"),
+        pytest.param("\ncontent 1", "content 1", id="local leading whitespace new line"),
+        pytest.param("content 1 ", "content 1", id="local trailing whitespace"),
+        pytest.param("content 1", " content 1", id="server leading whitespace"),
+        pytest.param("content 1", "\ncontent 1", id="server leading whitespace new line"),
+        pytest.param("content 1", "content 1 ", id="server trailing whitespace"),
     ],
 )
 def test__local_and_server_file_same(local_content: str, server_content: str, mocked_clients):
@@ -149,7 +156,9 @@ def test__local_and_server_file_same(local_content: str, server_content: str, mo
     path.write_text(local_content, encoding="utf-8")
     path_info = factories.PathInfoFactory(local_path=path)
     mocked_clients.discourse.retrieve_topic.return_value = server_content
-    navlink = types_.Navlink(title=path_info.navlink_title, link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -184,7 +193,9 @@ def test__local_and_server_file_content_change_repo_error(mock_get_file, mocked_
     path_info = factories.PathInfoFactory(local_path=path)
     mocked_clients.discourse.retrieve_topic.return_value = "content 2"
     mock_get_file.side_effect = exceptions.RepositoryClientError
-    navlink = types_.Navlink(title=path_info.navlink_title, link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     with pytest.raises(exceptions.ReconcilliationError) as exc_info:
@@ -222,7 +233,9 @@ def test__local_and_server_file_content_change_repo_tag_not_found(mock_get_file,
     path_info = factories.PathInfoFactory(local_path=path)
     mocked_clients.discourse.retrieve_topic.return_value = "content 2"
     mock_get_file.side_effect = exceptions.RepositoryTagNotFoundError
-    navlink = types_.Navlink(title=path_info.navlink_title, link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     with pytest.raises(exceptions.ReconcilliationError) as exc_info:
@@ -258,7 +271,9 @@ def test__local_and_server_file_content_change_file_not_in_repo(mock_get_file, m
     path_info = factories.PathInfoFactory(local_path=path)
     mocked_clients.discourse.retrieve_topic.return_value = (server_content := "content 2")
     mock_get_file.side_effect = exceptions.RepositoryFileNotFoundError
-    navlink = types_.Navlink(title=path_info.navlink_title, link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -300,7 +315,9 @@ def test__local_and_server_file_content_change(mock_get_file, mocked_clients):
     mocked_clients.discourse.retrieve_topic.return_value = (server_content := "content 2")
     base_content = "content 3"
     mock_get_file.return_value = base_content
-    navlink = types_.Navlink(title=path_info.navlink_title, link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -326,6 +343,52 @@ def test__local_and_server_file_content_change(mock_get_file, mocked_clients):
 
 
 @mock.patch("src.repository.Client.get_file_content_from_tag")
+def test__local_and_server_file_content_change_base_content_ws(mock_get_file, mocked_clients):
+    """
+    arrange: given path info with a file and table row with no changes and discourse client that
+        returns the different content as in the file
+        and base content that has leading and trailing whitespace chars
+    act: when _local_and_server is called with the path info and table row
+    assert: then an update action is returned
+        with base content without leading and trailing whitespace chars.
+    """
+    tmp_path = mocked_clients.repository.base_path
+
+    relative_path = Path("file1.md")
+    (path := tmp_path / relative_path).touch()
+    path.write_text(local_content := "content 1", encoding="utf-8")
+    path_info = factories.PathInfoFactory(local_path=path)
+    mocked_clients.discourse.retrieve_topic.return_value = (server_content := "content 2")
+    base_content = " \tcontent 3\n"
+    mock_get_file.return_value = base_content
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
+    table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
+
+    (returned_action,) = reconcile._local_and_server(
+        path_info=path_info,
+        table_row=table_row,
+        clients=mocked_clients,
+        base_path=tmp_path,
+    )
+
+    assert isinstance(returned_action, types_.UpdateAction)
+    assert returned_action.level == path_info.level
+    assert returned_action.path == path_info.table_path
+    # mypy has difficulty with determining which action is returned
+    assert returned_action.navlink_change.old == navlink  # type: ignore
+    assert returned_action.navlink_change.new == navlink  # type: ignore
+    assert returned_action.content_change.server == server_content  # type: ignore
+    assert returned_action.content_change.local == local_content  # type: ignore
+    assert returned_action.content_change.base == "content 3"  # type: ignore
+    mocked_clients.discourse.retrieve_topic.assert_called_once_with(url=navlink_link)
+    mock_get_file.assert_called_once_with(
+        path=str(relative_path), tag_name=constants.DOCUMENTATION_TAG
+    )
+
+
+@mock.patch("src.repository.Client.get_file_content_from_tag")
 def test__local_and_server_file_navlink_title_change(mock_get_file, mocked_clients):
     """
     arrange: given path info with a file and table row with different navlink title and discourse
@@ -341,7 +404,7 @@ def test__local_and_server_file_navlink_title_change(mock_get_file, mocked_clien
     path_info = factories.PathInfoFactory(local_path=path, navlink_title="title 1")
     mocked_clients.discourse.retrieve_topic.return_value = content
     mock_get_file.return_value = content
-    navlink = types_.Navlink(title="title 2", link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(title="title 2", link=(navlink_link := "link 1"))
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -356,8 +419,52 @@ def test__local_and_server_file_navlink_title_change(mock_get_file, mocked_clien
     assert returned_action.path == path_info.table_path
     # mypy has difficulty with determining which action is returned
     assert returned_action.navlink_change.old == navlink  # type: ignore
-    assert returned_action.navlink_change.new == types_.Navlink(  # type: ignore
+    assert returned_action.navlink_change.new == factories.NavlinkFactory(  # type: ignore
         title=path_info.navlink_title, link=navlink_link
+    )
+    assert returned_action.content_change.server == content  # type: ignore
+    assert returned_action.content_change.local == content  # type: ignore
+    mocked_clients.discourse.retrieve_topic.assert_called_once_with(url=navlink_link)
+    mock_get_file.assert_called_once_with(
+        path=str(relative_path), tag_name=constants.DOCUMENTATION_TAG
+    )
+
+
+@mock.patch("src.repository.Client.get_file_content_from_tag")
+def test__local_and_server_file_navlink_hidden_change(mock_get_file, mocked_clients):
+    """
+    arrange: given path info with a file and table row with different navlink hidden and discourse
+        client that returns the same content as in the file
+    act: when _local_and_server is called with the path info and table row
+    assert: then an update action is returned.
+    """
+    tmp_path = mocked_clients.repository.base_path
+
+    relative_path = Path("file1.md")
+    (path := tmp_path / relative_path).touch()
+    path.write_text(content := "content 1", encoding="utf-8")
+    path_info = factories.PathInfoFactory(
+        local_path=path, navlink_title=(title := "title 1"), navlink_hidden=True
+    )
+    mocked_clients.discourse.retrieve_topic.return_value = content
+    mock_get_file.return_value = content
+    navlink = factories.NavlinkFactory(title=title, link=(navlink_link := "link 1"), hidden=False)
+    table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
+
+    (returned_action,) = reconcile._local_and_server(
+        path_info=path_info,
+        table_row=table_row,
+        clients=mocked_clients,
+        base_path=tmp_path,
+    )
+
+    assert isinstance(returned_action, types_.UpdateAction)
+    assert returned_action.level == path_info.level
+    assert returned_action.path == path_info.table_path
+    # mypy has difficulty with determining which action is returned
+    assert returned_action.navlink_change.old == navlink  # type: ignore
+    assert returned_action.navlink_change.new == factories.NavlinkFactory(  # type: ignore
+        title=path_info.navlink_title, link=navlink_link, hidden=True
     )
     assert returned_action.content_change.server == content  # type: ignore
     assert returned_action.content_change.local == content  # type: ignore
@@ -378,7 +485,7 @@ def test__local_and_server_directory_same(mock_get_file, mocked_clients):
 
     (path := tmp_path / "dir1").mkdir()
     path_info = factories.PathInfoFactory(local_path=path)
-    navlink = types_.Navlink(title=path_info.navlink_title, link=None)
+    navlink = factories.NavlinkFactory(title=path_info.navlink_title, link=None)
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -408,7 +515,7 @@ def test__local_and_server_directory_navlink_title_changed(mocked_clients):
 
     (path := tmp_path / "dir1").mkdir()
     path_info = factories.PathInfoFactory(local_path=path, navlink_title="title 1")
-    navlink = types_.Navlink(title="title 2", link=None)
+    navlink = factories.NavlinkFactory(title="title 2", link=None)
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -423,14 +530,17 @@ def test__local_and_server_directory_navlink_title_changed(mocked_clients):
     assert returned_action.path == path_info.table_path
     # mypy has difficulty with determining which action is returned
     assert returned_action.navlink_change.old == navlink  # type: ignore
-    assert returned_action.navlink_change.new == types_.Navlink(  # type: ignore
+    assert returned_action.navlink_change.new == factories.NavlinkFactory(  # type: ignore
         title=path_info.navlink_title, link=None
     )
     assert returned_action.content_change is None  # type: ignore
     mocked_clients.discourse.retrieve_topic.assert_not_called()
 
 
-def test__local_and_server_directory_to_file(mocked_clients):
+@pytest.mark.parametrize(
+    "hidden", [pytest.param(False, id="not hidden"), pytest.param(True, id="hidden")]
+)
+def test__local_and_server_directory_to_file(mocked_clients, hidden: bool):
     """
     arrange: given path info with a file and table row with a group
     act: when _local_and_server is called with the path info and table row
@@ -440,8 +550,8 @@ def test__local_and_server_directory_to_file(mocked_clients):
 
     (path := tmp_path / "file1.md").touch()
     path.write_text(content := "content 1", encoding="utf-8")
-    path_info = factories.PathInfoFactory(local_path=path)
-    navlink = types_.Navlink(title=path_info.navlink_title, link=None)
+    path_info = factories.PathInfoFactory(local_path=path, navlink_hidden=hidden)
+    navlink = factories.NavlinkFactory(title=path_info.navlink_title, link=None, hidden=False)
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     (returned_action,) = reconcile._local_and_server(
@@ -456,6 +566,7 @@ def test__local_and_server_directory_to_file(mocked_clients):
     assert returned_action.path == path_info.table_path
     # mypy has difficulty with determining which action is returned
     assert returned_action.navlink_title == path_info.navlink_title  # type: ignore
+    assert returned_action.navlink_hidden == path_info.navlink_hidden  # type: ignore
     assert returned_action.content == content  # type: ignore
     mocked_clients.discourse.retrieve_topic.assert_not_called()
 
@@ -471,7 +582,9 @@ def test__local_and_server_file_to_directory(mocked_clients):
     (path := tmp_path / "dir1").mkdir()
     path_info = factories.PathInfoFactory(local_path=path)
     mocked_clients.discourse.retrieve_topic.return_value = (content := "content 1")
-    navlink = types_.Navlink(title=path_info.navlink_title, link=(navlink_link := "link 1"))
+    navlink = factories.NavlinkFactory(
+        title=path_info.navlink_title, link=(navlink_link := "link 1")
+    )
     table_row = types_.TableRow(level=path_info.level, path=path_info.table_path, navlink=navlink)
 
     returned_actions = reconcile._local_and_server(
@@ -505,7 +618,7 @@ def test__server_only_file():
     """
     mock_discourse = mock.MagicMock(spec=discourse.Discourse)
     mock_discourse.retrieve_topic.return_value = (content := "content 1")
-    navlink = types_.Navlink(title="title 1", link="link 1")
+    navlink = factories.NavlinkFactory(title="title 1", link="link 1")
     table_row = types_.TableRow(level=1, path=("path 1",), navlink=navlink)
 
     returned_action = reconcile._server_only(table_row=table_row, discourse=mock_discourse)
@@ -526,7 +639,7 @@ def test__server_only_file_discourse_error():
     """
     mock_discourse = mock.MagicMock(spec=discourse.Discourse)
     mock_discourse.retrieve_topic.side_effect = exceptions.DiscourseError
-    navlink = types_.Navlink(title="title 1", link=(link := "link 1"))
+    navlink = factories.NavlinkFactory(title="title 1", link=(link := "link 1"))
     table_row = types_.TableRow(level=1, path=("path 1",), navlink=navlink)
 
     with pytest.raises(exceptions.ServerError) as exc_info:
@@ -542,7 +655,7 @@ def test__server_only_directory():
     assert: then a delete action for the directory is returned.
     """
     mock_discourse = mock.MagicMock(spec=discourse.Discourse)
-    navlink = types_.Navlink(title="title 1", link=None)
+    navlink = factories.NavlinkFactory(title="title 1", link=None)
     table_row = types_.TableRow(level=1, path=("path 1",), navlink=navlink)
 
     returned_action = reconcile._server_only(table_row=table_row, discourse=mock_discourse)
@@ -597,17 +710,19 @@ def path_info_mkdir(path_info: types_.PathInfo, base_dir: Path) -> types_.PathIn
         ),
         pytest.param(
             factories.PathInfoFactory(
-                table_path=(path := "path 1"), navlink_title=(title := "title 1")
+                level=1, table_path=(path := "path 1"), navlink_title=(title := "title 1")
             ),
             factories.TableRowFactory(
-                level=1, path=path, navlink=types_.Navlink(title=title, link=None)
+                level=1, path=path, navlink=factories.NavlinkFactory(title=title, link=None)
             ),
             types_.NoopAction,
             id="path info defined table row defined",
         ),
         pytest.param(
             None,
-            factories.TableRowFactory(level=1, navlink=types_.Navlink(title=title, link=None)),
+            factories.TableRowFactory(
+                level=1, navlink=factories.NavlinkFactory(title=title, link=None)
+            ),
             types_.DeleteAction,
             id="path info None table row defined",
         ),
@@ -673,8 +788,8 @@ def test__calculate_action(
             (),
             (types_.CreateAction, types_.CreateAction),
             (
-                (path_info_2.level, path_info_2.table_path),
                 (path_info_1.level, path_info_1.table_path),
+                (path_info_2.level, path_info_2.table_path),
             ),
             id="multiple path infos empty table rows alternate order",
         ),
@@ -701,7 +816,7 @@ def test__calculate_action(
                 factories.TableRowFactory(
                     level=path_info_1.level,
                     path=path_info_1.table_path,
-                    navlink=types_.Navlink(title=path_info_1.navlink_title, link=None),
+                    navlink=factories.NavlinkFactory(title=path_info_1.navlink_title, link=None),
                 ),
             ),
             (types_.NoopAction,),
@@ -754,7 +869,7 @@ def test_run(  # pylint: disable=too-many-arguments
 
     returned_actions = list(
         reconcile.run(
-            path_infos=path_infos,
+            sorted_path_infos=path_infos,
             table_rows=table_rows,
             clients=mocked_clients,
             base_path=tmp_path,
@@ -921,3 +1036,88 @@ def test_index_page(
     returned_action = reconcile.index_page(index=index, table_rows=table_rows)
 
     assert returned_action == expected_action
+
+
+@pytest.mark.parametrize(
+    "actions, expected_value",
+    [
+        pytest.param([factories.NoopActionFactory()], True, id="Noop action"),
+        pytest.param([factories.CreateActionFactory], False, id="Create action"),
+        pytest.param([factories.DeleteActionFactory], False, id="Delete action"),
+        pytest.param([factories.UpdateActionFactory], False, id="Update action"),
+        pytest.param(
+            [
+                factories.UpdateActionFactory(
+                    content_change=types_.ContentChange(None, "same", "same")
+                )
+            ],
+            False,
+            id="Update action with same content",
+        ),
+    ],
+)
+def test__is_same_content_actions(
+    actions: typing.Iterable[types_.AnyAction], expected_value: bool
+):
+    """
+    arrange: given some mock list of actions and an index with matching local and server content
+    act: when is_same_content function is called
+    assert: then the correct results is returned.
+    """
+    index = types_.Index(
+        types_.Page("index-url", "index-content"),
+        types_.IndexFile("index-title", "index-content"),
+        "charm",
+    )
+
+    assert reconcile.is_same_content(index, actions) == expected_value
+
+
+@pytest.mark.parametrize(
+    "index, expected_value",
+    [
+        pytest.param(
+            types_.Index(
+                types_.Page("index-url", "index-content"),
+                types_.IndexFile("index-title", "index-content"),
+                "charm",
+            ),
+            True,
+            id="same index",
+        ),
+        pytest.param(
+            types_.Index(
+                types_.Page("index-url", "index-content"),
+                types_.IndexFile("index-title", "index-content-different"),
+                "charm",
+            ),
+            False,
+            id="different index",
+        ),
+        pytest.param(
+            types_.Index(
+                None, types_.IndexFile("index-title", "index-content-different"), "charm"
+            ),
+            False,
+            id="missing server content",
+        ),
+        pytest.param(
+            types_.Index(
+                types_.Page("index-url", "index-content"),
+                types_.IndexFile("index-title", None),
+                "charm",
+            ),
+            False,
+            id="missing local content",
+        ),
+    ],
+)
+def test__is_same_content_index(index: types_.Index, expected_value: bool):
+    """
+    arrange: given some mock Index object and an action list that only contains a NoopAction
+    act: when is_same_content function is called
+    assert: then the correct results is returned.
+    """
+    actions = [types_.NoopAction(1, tuple("path"), types_.Navlink("title", None, True), None)]
+
+    assert reconcile.is_same_content(index, actions) == expected_value

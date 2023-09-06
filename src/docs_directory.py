@@ -8,8 +8,8 @@ from functools import partial
 from itertools import count
 from pathlib import Path
 
-from . import types_
-from .constants import DOCUMENTATION_FOLDER_NAME
+from src import types_
+from src.constants import DOC_FILE_EXTENSION, DOCUMENTATION_FOLDER_NAME
 
 
 def _get_directories_files(docs_path: Path) -> list[Path]:
@@ -24,7 +24,8 @@ def _get_directories_files(docs_path: Path) -> list[Path]:
     return sorted(
         path
         for path in docs_path.rglob("*")
-        if path.is_dir() or (path.suffix.lower() == ".md" and not path.stem.lower() == "index")
+        if path.is_dir()
+        or (path.suffix.lower() == DOC_FILE_EXTENSION and not path.stem.lower() == "index")
     )
 
 
@@ -120,6 +121,7 @@ def _get_path_info(path: Path, alphabetical_rank: int, docs_path: Path) -> types
         table_path=calculate_table_path(path_relative_to_docs=path_relative_to_docs),
         navlink_title=_calculate_navlink_title(path=path),
         alphabetical_rank=alphabetical_rank,
+        navlink_hidden=False,
     )
 
 
