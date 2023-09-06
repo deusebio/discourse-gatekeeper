@@ -1051,8 +1051,13 @@ def test_index_page(
                     content_change=types_.ContentChange(None, "same", "same")
                 )
             ],
-            False,
+            True,
             id="Update action with same content",
+        ),
+        pytest.param(
+            [factories.UpdateActionFactory(content_change=None)],
+            True,
+            id="Update action with no content change",
         ),
     ],
 )
